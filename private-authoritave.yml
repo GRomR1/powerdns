@@ -1,0 +1,120 @@
+version: '2.1'
+
+services:
+
+  admin:
+    image: chrisss404/powerdns:latest-admin
+    depends_on:
+      - admin-db
+      - authoritative
+    environment:
+      - ADMIN_PDNS_API_KEY=api-secret-authoritative
+      - ADMIN_USER_PASSWORD=admin
+    networks:
+      - admin-db
+      - authoritative
+        #volumes:
+        #- ./authoritative/conf/pdns.conf-dist:/etc/pdns/pdns.conf-dist:ro
+    ports:
+      - "80:3031"
+
+  admin-db:
+    image: postgres:12.1-alpine
+    environment:
+      - POSTGRES_DB=pda
+      - POSTGRES_INITDB_ARGS=--data-checksums
+      - POSTGRES_PASSWORD=pda
+      - POSTGRES_USER=pda
+    networks:
+      - admin-db
+    volumes:
+      - admin-db:/var/lib/postgresql/data
+
+  authoritative:
+    #image: chrisss404/powerdns:latest-authoritative
+    image: gromr1/pdns-authoritative:4.6.2
+    depends_on:
+      - authoritative-db
+    environment:
+      - AUTHORITATIVE_API=yes
+      - AUTHORITATIVE_API_KEY=api-secret-authoritative
+      - AUTHORITATIVE_WEBSERVER=yes
+      - AUTHORITATIVE_WEBSERVER_PASSWORD=admin
+    networks:
+      authoritative:
+        ipv4_address: 172.31.118.118
+      authoritative-db:
+    ports:
+      - "8081:8081/tcp"
+
+  authoritative-db:
+    image: postgres:12.1-alpine
+    environment:
+      - POSTGRES_DB=pdns
+      - POSTGRES_INITDB_ARGS=--data-checksums
+      - POSTGRES_PASSWORD=pdns
+      - POSTGRES_USER=pdns
+    networks:
+      - authoritative-db
+    volumes:
+      - authoritative-db:/var/lib/postgresql/data
+
+  dnsdist:
+    image: chrisss404/powerdns:latest-dnsdist
+    environment:
+      - DNSDIST_API_KEY=api-secret-dnsdist
+      - DNSDIST_PLAIN=yes
+      - DNSDIST_QUIET=no
+      - DNSDIST_WEBSERVER=yes
+      - DNSDIST_WEBSERVER_PASSWORD=admin
+    networks:
+      - recursor
+    ports:
+      - "1053:53/tcp"
+      - "1053:53/udp"
+      - "8083:8083/tcp"
+
+  recursor:
+    image: gromr1/pdns-recursor:4.6.2
+    #image: chrisss404/powerdns:latest-recursor
+    #build:
+    #  context: ./recursor
+    #  args:
+    #    RECURSOR_VERSION: 4.6.2
+    environment:
+      - RECURSOR_API_KEY=api-secret-recursor
+      - RECURSOR_DNSSEC=validate
+      - RECURSOR_FORWARD_ZONES=example.com=172.31.118.118
+      - RECURSOR_TRUST_ANCHORS=example.com=57939 13 1 bbe4d580f0e7308f21519864768482cc48e13309
+      - RECURSOR_QUIET=yes
+      - RECURSOR_SECURITY_POOL_SUFFIX=
+      - RECURSOR_WEBSERVER=yes
+      - RECURSOR_WEBSERVER_PASSWORD=admin
+    sysctls:
+      - net.ipv6.route.max_size=16384
+    networks:
+      recursor:
+        ipv4_address: 172.31.117.117
+      authoritative:
+    ports:
+      - "8082:8082/tcp"
+        #volumes:
+        #- ./recursor/conf/recursor.conf-dist/:/etc/pdns-recursor/recursor.conf:ro
+
+volumes:
+  authoritative-db:
+  admin-db:
+
+networks:
+  admin-db:
+  authoritative:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.31.118.0/24"
+  authoritative-db:
+  recursor:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.31.117.0/24"
